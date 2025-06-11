@@ -1,0 +1,157 @@
+import numpy as np
+import struct
+import math
+
+
+def float_to_int_bits(f):
+
+    try:
+
+        return struct.unpack('>Q', struct.pack('>d', f))[0]
+    except (struct.error, TypeError):
+        
+        print(f"Warning: Could not convert {f} to float bits.")
+        return 0 # Or raise an error
+
+def count_leading_zeros(n, bits=64):
+
+    if n < 0:
+        raise ValueError("Input must be non-negative")
+    if n == 0:
+        return bits
+    
+    if bits == 64:
+        if n == 0: return 64
+        clz = 0
+        if (n >> 32) == 0: clz += 32; n <<= 32
+        if (n >> 48) == 0: clz += 16; n <<= 16
+        if (n >> 56) == 0: clz += 8; n <<= 8
+        if (n >> 60) == 0: clz += 4; n <<= 4
+        if (n >> 62) == 0: clz += 2; n <<= 2
+        if (n >> 63) == 0: clz += 1
+        return clz
+    else: 
+      clz = 0
+      msb_mask = 1 << (bits - 1)
+      while clz < bits and (n & msb_mask) == 0:
+          clz += 1
+          n <<= 1
+      return clz
+
+
+def calculate_l_count(current_val, prev_val):
+
+
+    b_curr = float_to_int_bits(current_val)
+    b_prev = float_to_int_bits(prev_val)
+    
+
+    xor_val = b_curr ^ b_prev
+    
+
+    l_count = count_leading_zeros(xor_val, bits=64) # Assuming 64-bit floats
+    return l_count
+
+
+
+def data_segmentation_module(d_n, l_min, l_max, w_size, l_a):
+
+
+    Args:
+        d_n (list or np.array): Input time series data (floats).
+        l_min (int): Minimum segmentation threshold constraint.
+        l_max (int): Maximum segmentation threshold constraint.
+        w_size (int): Sliding window size for historical L_count analysis.
+        l_a (float): Threshold adjustment amplitude multiplier (t_a in pseudocode).
+
+
+    Returns:
+        list: A list of data segments (each segment is a sublist/subarray of d_n).
+        list: A list of the calculated L_count values for each difference (XOR result).
+              The list will have length n-1.
+        list: Indices where fluctuations were detected (fluctuation points).
+
+    n = len(d_n)
+    if n < 2:
+        print("Warning: Need at least 2 data points for segmentation.")
+        return [d_n], [], [] # Return the whole data, no L_counts, no fluctuation points
+
+    all_l_counts = []           # Store L_count for each XOR difference
+    l_counts_history = []       # Stores recent L_count values for dynamic threshold calculation (h in pseudocode)
+    fluctuation_points = [0]    # Initialize with the start index 0
+
+    previous_l_count = None     # Store the L_count from the previous step
+
+    for i in range(1, n):
+        
+        current_l_count = calculate_l_count(d_n[i], d_n[i-1])
+        all_l_counts.append(current_l_count)
+        
+      
+        if previous_l_count is not None:
+            diff = abs(current_l_count - previous_l_count)
+        else:
+           
+            diff = 0 # Or handle as a special case
+
+       
+        l_counts_history.append(current_l_count)
+        if len(l_counts_history) > w_size:
+            l_counts_history.pop(0) # Keep only the last w_size elements
+
+       
+        if len(l_counts_history) >= max(2, w_size):
+            
+            history_diffs = np.diff(l_counts_history)
+
+            if len(history_diffs) >= 1: 
+                mu = np.mean(history_diffs)
+              
+                sigma = np.std(history_diffs) if len(history_diffs) > 1 else 0
+                
+                new_threshold = mu + l_a * sigma 
+            else:
+               
+                 new_threshold = (l_min + l_max) / 2 # Fallback similar to line 6
+        else:
+           
+            new_threshold = (l_min + l_max) / 2
+
+
+        current_threshold = max(l_min, min(new_threshold, l_max))
+
+
+
+        if i > 1 and diff >= current_threshold: # Assuming '>=' is intended for threshold crossing
+            fluctuation_points.append(i) # Record index 'i' (line 17)
+
+
+        previous_l_count = current_l_count
+
+    if fluctuation_points[-1] != n:
+        fluctuation_points.append(n)
+
+
+    segments = []
+
+    unique_fluctuation_points = sorted(list(set(fluctuation_points)))
+
+    for j in range(1, len(unique_fluctuation_points)):
+        start_index = unique_fluctuation_points[j-1]
+
+        end_index = unique_fluctuation_points[j]
+        
+        segment = d_n[start_index:end_index]
+        if len(segment) > 0: # Avoid empty segments if points are adjacent
+             segments.append(segment)
+
+
+    if not segments and n > 0:
+         segments = [d_n] # Return the whole dataset as one segment
+
+    identified_fluctuation_indices = [p for p in unique_fluctuation_points if 0 < p < n]
+
+    return segments, all_l_counts, identified_fluctuation_indices
+
+
+
