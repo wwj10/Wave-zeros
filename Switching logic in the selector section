@@ -1,0 +1,41 @@
+private void compressValue(long value) {
+    int actfSize = computeACTFSize(value);
+    int chimpNSize = computeChimpNSize(value);
+    
+    if (chimpNSize < actfSize) {
+        compressUsingChimpN(value);
+    } else {
+        compressUsingACTF(value);
+    }
+}
+
+private int computeACTFSize(long value) {
+    long xor = storedVal ^ value;
+    if (xor == 0) {
+        return 1;
+    } else {
+        int leadingZeros = leadingRound[Long.numberOfLeadingZeros(xor)];
+        int trailingZeros = Long.numberOfTrailingZeros(xor);
+        if (trailingZeros > THRESHOLD) {
+            return 11 + (64 - leadingZeros - trailingZeros); 
+        } else {
+            return 5 + (64 - leadingZeros); 
+        }
+    }
+}
+
+private int computeChimpNSize(long value) {
+    int key = (int) value & setLsb;
+    int currIndex = indices[key];
+    if ((index - currIndex) < previousValues) {
+        long tempXor = value ^ storedValues[currIndex % previousValues];
+        int trailingZeros = Long.numberOfTrailingZeros(tempXor);
+        if (trailingZeros > threshold) {
+            return flagOneSize + (64 - leadingRound[Long.numberOfLeadingZeros(tempXor)] - trailingZeros); 
+        } else {
+            return flagZeroSize;
+        }
+    } else {
+        return flagOneSize + 64;
+    }
+}
